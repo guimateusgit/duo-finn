@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { api } from '../api';
 import { Header } from '../components/Header';
+import { DonoBadge, DonoFiltro, DonoSelect, type Escopo } from '../components/Dono';
 import { brl, dia2, mesCurto } from '../format';
 import { CatIcon, Icon } from '../icons';
 import type { Cartao, Fatura } from '../types';
 import { Check, Field, Modal, MoneyInput, useAcao, useApp, useDados } from '../ui';
 
-function CartaoModal({ cartao, onClose }: { cartao: Cartao | null; onClose: () => void }) {
+export function CartaoModal({ cartao, donoPadrao = null, onClose }: { cartao: Cartao | null; donoPadrao?: number | null; onClose: () => void }) {
   const acao = useAcao();
+  const [dono, setDono] = useState<number | null>(cartao ? cartao.pessoa_id : donoPadrao);
   const [nome, setNome] = useState(cartao?.nome ?? '');
   const [final, setFinal] = useState(cartao?.final ?? '');
   const [limite, setLimite] = useState(cartao?.limite ?? 0);
@@ -15,7 +17,7 @@ function CartaoModal({ cartao, onClose }: { cartao: Cartao | null; onClose: () =
 
   async function salvar() {
     const r = await acao(() => api.salvarCartao({
-      id: cartao?.id, nome, final: final || null, limite, dia_vencimento: dia ? Number(dia) : null
+      id: cartao?.id, pessoa_id: dono, nome, final: final || null, limite, dia_vencimento: dia ? Number(dia) : null
     }), cartao ? 'Cartão atualizado' : 'Cartão cadastrado');
     if (r) onClose();
   }
@@ -33,6 +35,7 @@ function CartaoModal({ cartao, onClose }: { cartao: Cartao | null; onClose: () =
       </div>
     </>}>
       <form className="form-grid" onSubmit={(e) => { e.preventDefault(); salvar(); }}>
+        <div className="field full"><span>De quem é?</span><DonoSelect value={dono} onChange={setDono} rotuloCasa="Da casa" ariaLabel="De quem é o cartão" /></div>
         <Field label="Nome do cartão" full><input className="input" autoFocus value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Cartão da casa" /></Field>
         <Field label="Final" hint="Só os 4 últimos dígitos."><input className="input" maxLength={4} inputMode="numeric" value={final} onChange={(e) => setFinal(e.target.value.replace(/\D/g, ''))} placeholder="0000" /></Field>
         <Field label="Dia de vencimento"><input className="input" type="number" min={1} max={31} value={dia} onChange={(e) => setDia(e.target.value)} /></Field>
@@ -63,7 +66,8 @@ function FaturaCell({ cartaoId, f, atual }: { cartaoId: number; f: Fatura; atual
 
 export function Cartoes() {
   const { mes } = useApp();
-  const { dados: cartoes } = useDados(() => api.listarCartoes(mes), [mes]);
+  const [escopo, setEscopo] = useState<Escopo>('todas');
+  const { dados: cartoes } = useDados(() => api.listarCartoes(mes, escopo), [mes, escopo]);
   const [editando, setEditando] = useState<Cartao | null | 'novo'>(null);
 
   return (
@@ -73,9 +77,10 @@ export function Cartoes() {
         sub="Limites, vencimentos e o valor das faturas deste mês e dos próximos três."
         acoes={<button className="btn" type="button" onClick={() => setEditando('novo')}><Icon.mais /> Novo cartão</button>}
       />
+      <div className="filtros"><DonoFiltro value={escopo} onChange={setEscopo} rotuloCasa="Da casa" /></div>
       {cartoes && cartoes.length === 0 && (
         <section className="glass card"><div className="empty">
-          Nenhum cartão cadastrado.
+          {escopo === 'todas' ? 'Nenhum cartão cadastrado.' : 'Nenhum cartão neste filtro.'}
           <button className="btn" type="button" onClick={() => setEditando('novo')}><Icon.mais /> Cadastrar cartão</button>
         </div></section>
       )}
@@ -92,7 +97,10 @@ export function Cartoes() {
                     <p className="card-sub">{c.final ? `Final ${c.final} · ` : ''}{c.dia_vencimento ? `vence dia ${dia2(c.dia_vencimento)}` : 'sem vencimento'}</p>
                   </div>
                 </div>
-                <button className="icon-btn" type="button" aria-label={`Editar ${c.nome}`} onClick={() => setEditando(c)}><Icon.editar /></button>
+                <span className="row-left" style={{ gap: 4 }}>
+                  <DonoBadge pessoaId={c.pessoa_id} rotuloCasa="Da casa" />
+                  <button className="icon-btn" type="button" aria-label={`Editar ${c.nome}`} onClick={() => setEditando(c)}><Icon.editar /></button>
+                </span>
               </div>
               <div className="label">Limite disponível</div>
               <div className={`big sm${c.disponivel < 0 ? ' neg' : ''}`}>{brl(c.disponivel)}</div>
@@ -106,7 +114,7 @@ export function Cartoes() {
           );
         })}
       </div>
-      {editando && <CartaoModal cartao={editando === 'novo' ? null : editando} onClose={() => setEditando(null)} />}
+      {editando && <CartaoModal cartao={editando === 'novo' ? null : editando} donoPadrao={typeof escopo === 'number' ? escopo : null} onClose={() => setEditando(null)} />}
     </main>
   );
 }

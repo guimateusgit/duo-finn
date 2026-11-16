@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { api } from '../api';
 import { Header } from '../components/Header';
+import { DonoBadge, DonoFiltro, DonoSelect, type Escopo } from '../components/Dono';
 import { brl, pct } from '../format';
 import { CatIcon, Icon } from '../icons';
 import type { Meta } from '../types';
 import { Field, Modal, MoneyInput, useAcao, useDados } from '../ui';
 
-function MetaModal({ meta, onClose }: { meta: Meta | null; onClose: () => void }) {
+export function MetaModal({ meta, donoPadrao = null, onClose }: { meta: Meta | null; donoPadrao?: number | null; onClose: () => void }) {
   const acao = useAcao();
   const [m, setM] = useState({
+    pessoa_id: meta ? meta.pessoa_id : donoPadrao,
     nome: meta?.nome ?? '', tipo: meta?.tipo ?? 'reserva' as Meta['tipo'],
     valor_alvo: meta?.valor_alvo ?? 0, valor_atual: meta?.valor_atual ?? 0
   });
@@ -28,6 +30,7 @@ function MetaModal({ meta, onClose }: { meta: Meta | null; onClose: () => void }
       </div>
     </>}>
       <form className="form-grid" onSubmit={(e) => { e.preventDefault(); salvar(); }}>
+        <div className="field full"><span>De quem é?</span><DonoSelect value={m.pessoa_id} onChange={(v) => setM({ ...m, pessoa_id: v })} rotuloCasa="Do casal" ariaLabel="De quem é a meta" /></div>
         <Field label="Nome" full><input className="input" autoFocus value={m.nome} onChange={(e) => setM({ ...m, nome: e.target.value })} placeholder="Ex.: Reserva de emergência" /></Field>
         <Field label="Tipo" full>
           <select className="input" value={m.tipo} onChange={(e) => setM({ ...m, tipo: e.target.value as Meta['tipo'] })}>
@@ -44,7 +47,7 @@ function MetaModal({ meta, onClose }: { meta: Meta | null; onClose: () => void }
   );
 }
 
-function Aporte({ meta }: { meta: Meta }) {
+export function Aporte({ meta }: { meta: Meta }) {
   const acao = useAcao();
   const [v, setV] = useState(0);
   const mover = (sinal: 1 | -1) => acao(
@@ -61,15 +64,17 @@ function Aporte({ meta }: { meta: Meta }) {
 }
 
 export function Metas() {
-  const { dados: metas } = useDados(() => api.listarMetas(), []);
+  const [escopo, setEscopo] = useState<Escopo>('todas');
+  const { dados: metas } = useDados(() => api.listarMetas(escopo), [escopo]);
   const [editando, setEditando] = useState<Meta | null | 'nova'>(null);
   return (
     <main className="main">
-      <Header titulo="Reserva e obra" sub="Objetivos do casal e quanto já foi guardado para cada um."
+      <Header titulo="Reserva e obra" sub="Objetivos do casal e de cada um, e quanto já foi guardado."
         acoes={<button className="btn" type="button" onClick={() => setEditando('nova')}><Icon.mais /> Nova meta</button>} />
+      <div className="filtros"><DonoFiltro value={escopo} onChange={setEscopo} rotuloCasa="Do casal" /></div>
       {metas && metas.length === 0 && (
         <section className="glass card"><div className="empty">
-          Nenhuma meta ainda.
+          {escopo === 'todas' ? 'Nenhuma meta ainda.' : 'Nenhuma meta neste filtro.'}
           <button className="btn" type="button" onClick={() => setEditando('nova')}><Icon.mais /> Criar meta</button>
         </div></section>
       )}
@@ -86,7 +91,10 @@ export function Metas() {
                     <p className="card-sub">{m.tipo === 'obra' ? 'Obra / imóvel' : m.tipo === 'reserva' ? 'Reserva' : 'Objetivo'}</p>
                   </div>
                 </div>
-                <button className="icon-btn" type="button" aria-label={`Editar ${m.nome}`} onClick={() => setEditando(m)}><Icon.editar /></button>
+                <span className="row-left" style={{ gap: 4 }}>
+                  <DonoBadge pessoaId={m.pessoa_id} rotuloCasa="Do casal" />
+                  <button className="icon-btn" type="button" aria-label={`Editar ${m.nome}`} onClick={() => setEditando(m)}><Icon.editar /></button>
+                </span>
               </div>
               <div className="big sm">{brl(m.valor_atual)}</div>
               <div className="progress"><span style={{ width: `${Math.min(100, p * 100)}%` }} /></div>
@@ -98,7 +106,7 @@ export function Metas() {
           );
         })}
       </div>
-      {editando && <MetaModal meta={editando === 'nova' ? null : editando} onClose={() => setEditando(null)} />}
+      {editando && <MetaModal meta={editando === 'nova' ? null : editando} donoPadrao={typeof escopo === 'number' ? escopo : null} onClose={() => setEditando(null)} />}
     </main>
   );
 }

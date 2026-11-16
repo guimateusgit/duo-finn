@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const Database = require('better-sqlite3');
-const { migrate } = require('./schema.cjs');
+const { migrate, MIGRATIONS } = require('./schema.cjs');
 const { createRepo, METODOS } = require('./repo.cjs');
 
 // O banco fica na pasta de dados do usuário (no Windows:
@@ -15,6 +15,14 @@ let repo;
 function abrirBanco() {
   fs.mkdirSync(path.dirname(dbPath()), { recursive: true });
   db = new Database(dbPath());
+  // Antes de atualizar o esquema de um banco existente, guarda uma cópia.
+  const versao = db.pragma('user_version', { simple: true });
+  if (versao > 0 && versao < MIGRATIONS.length) {
+    const dir = path.join(app.getPath('userData'), 'backups');
+    fs.mkdirSync(dir, { recursive: true });
+    db.pragma('wal_checkpoint(TRUNCATE)');
+    fs.copyFileSync(dbPath(), path.join(dir, `antes-da-atualizacao-v${versao}.db`));
+  }
   migrate(db);
   repo = createRepo(db);
 }

@@ -1,6 +1,6 @@
 export type Mes = string; // 'YYYY-MM'
 
-export interface Pessoa { id: number; casal_id: number; ordem: 1 | 2; nome: string; renda_mensal: number }
+export interface Pessoa { id: number; casal_id: number; ordem: 1 | 2; nome: string; renda_mensal: number; tem_pin: boolean }
 export interface Config { casal_id: number; mes_referencia: Mes; modo_divisao: 'proporcional' | 'igual'; meta_moradia: number }
 export interface Casal { id: number; nome: string }
 
@@ -19,6 +19,7 @@ export interface Conta {
   dia_vencimento: number | null;
   pago: boolean;
   recorrente: boolean;
+  pessoa_id: number | null; // null = conta da casa
   divisoes: Divisao[];
   parte1: number;
   parte2: number;
@@ -33,19 +34,18 @@ export interface ContaInput {
   dia_vencimento: number | null;
   pago?: boolean;
   recorrente?: boolean;
+  pessoa_id?: number | null;
   divisoes?: Divisao[];
 }
 
-export interface Gasto { id: number; pessoa_id: number; mes_referencia: Mes; descricao: string; valor: number; tipo: 'fixa' | 'dia_a_dia' }
-
 export interface Fatura { id: number | null; mes_referencia: Mes; valor: number; paga: boolean }
-export interface Cartao { id: number; nome: string; final: string | null; limite: number; dia_vencimento: number | null; faturas: Fatura[]; disponivel: number }
+export interface Cartao { id: number; pessoa_id: number | null; nome: string; final: string | null; limite: number; dia_vencimento: number | null; faturas: Fatura[]; disponivel: number }
 
-export interface Meta { id: number; nome: string; tipo: 'reserva' | 'obra' | 'outro'; valor_alvo: number; valor_atual: number }
+export interface Meta { id: number; pessoa_id: number | null; nome: string; tipo: 'reserva' | 'obra' | 'outro'; valor_alvo: number; valor_atual: number }
 
 export interface ResumoPessoa {
   id: number; ordem: 1 | 2; nome: string; renda: number;
-  parte_casa: number; gastos_fixos: number; dia_a_dia: number; sobra: number; pct_casa: number;
+  parte_casa: number; gastos_pessoais: number; pessoais_pendente: number; qtd_pessoais: number; sobra: number; pct_casa: number;
 }
 
 export interface Resumo {

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { api } from '../api';
 import { ContaModal } from '../components/ContaModal';
 import { Header } from '../components/Header';
+import { DonoBadge } from '../components/Dono';
 import { brl, dia2, mesCurto, nomeMes, pct } from '../format';
 import { CatIcon, Icon } from '../icons';
 import type { Conta } from '../types';
@@ -9,35 +10,39 @@ import { Check, Ring, useAcao, useApp, useDados } from '../ui';
 
 interface Props { irPara: (p: string) => void }
 
+const SEM_DIA = 99; // gasto sem vencimento: vai para o fim da lista
+const rotuloDia = (d: number) => (d === SEM_DIA ? 'Sem data' : dia2(d));
+
 export function VisaoGeral({ irPara }: Props) {
-  const { estado, mes, toast } = useApp();
+  const { estado, mes, toast, perfil, verPessoa } = useApp();
   const acao = useAcao();
   const [p1, p2] = estado.pessoas;
 
   const { dados: resumo } = useDados(() => api.resumo(mes), [mes]);
   const { dados: contas } = useDados(() => api.listarContas(mes), [mes]);
+  const { dados: meus } = useDados(() => api.listarContas(mes, perfil.id), [mes, perfil.id]);
   const { dados: cartoes } = useDados(() => api.listarCartoes(mes), [mes]);
   const { dados: metas } = useDados(() => api.listarMetas(), []);
 
-  const [editando, setEditando] = useState<Conta | null | 'nova'>(null);
-  const [quem, setQuem] = useState<1 | 2>(1);
+  const [editando, setEditando] = useState<Conta | null | 'nova' | 'meu'>(null);
+  const [quem, setQuem] = useState<1 | 2>(perfil.ordem);
 
   // ----- contas a pagar (contas da casa + faturas do mês) -----
   const aPagar = useMemo(() => {
     const itens: { chave: string; nome: string; valor: number; dia: number; cat: string; pagar: () => Promise<unknown> }[] = [];
-    (contas ?? []).filter((c) => !c.pago).forEach((c) => itens.push({
-      chave: `c${c.id}`, nome: c.nome, valor: c.valor, dia: c.dia_vencimento ?? 31, cat: c.categoria,
+    [...(contas ?? []), ...(meus ?? [])].filter((c) => !c.pago).forEach((c) => itens.push({
+      chave: `c${c.id}`, nome: c.pessoa_id ? `${c.nome} (seu)` : c.nome, valor: c.valor, dia: c.dia_vencimento ?? SEM_DIA, cat: c.categoria,
       pagar: () => api.marcarPago(c.id, true)
     }));
     (cartoes ?? []).forEach((k) => {
       const f = k.faturas[0];
       if (f && f.valor > 0 && !f.paga) itens.push({
-        chave: `f${k.id}`, nome: `Fatura ${k.nome}`, valor: f.valor, dia: k.dia_vencimento ?? 31, cat: 'cartao',
+        chave: `f${k.id}`, nome: `Fatura ${k.nome}`, valor: f.valor, dia: k.dia_vencimento ?? SEM_DIA, cat: 'cartao',
         pagar: () => api.salvarFatura({ cartao_id: k.id, mes_referencia: f.mes_referencia, valor: f.valor, paga: true })
       });
     });
     return itens.sort((a, b) => a.dia - b.dia);
-  }, [contas, cartoes]);
+  }, [contas, meus, cartoes]);
 
   const dias = [...new Set(aPagar.map((i) => i.dia))];
   const hoje = new Date();
@@ -47,12 +52,10 @@ export function VisaoGeral({ irPara }: Props) {
   const dia = diaSel != null && dias.includes(diaSel) ? diaSel : diaPadrao;
   const ateODia = aPagar.filter((i) => dia != null && i.dia <= dia);
 
-  if (!resumo || !contas || !cartoes || !metas) return <main className="main" />;
+  if (!resumo || !contas || !meus || !cartoes || !metas) return <main className="main" />;
 
   const [r1, r2] = resumo.pessoas;
-  const fixos = r1.gastos_fixos + r2.gastos_fixos;
-  const diaADia = r1.dia_a_dia + r2.dia_a_dia;
-  const base = Math.max(resumo.renda_total, resumo.total_casa + fixos + diaADia, 1);
+  const base = Math.max(resumo.renda_total, resumo.total_casa + r1.gastos_pessoais + r2.gastos_pessoais, 1);
   const w = (v: number) => `${Math.max(0, (v / base) * 100)}%`;
   const pctLivre = resumo.renda_total ? resumo.sobra_total / resumo.renda_total : 0;
 
@@ -70,6 +73,7 @@ export function VisaoGeral({ irPara }: Props) {
       `Total da casa: ${brl(resumo!.total_casa)} (${brl(resumo!.total_pago)} já pago)`,
       `${p1.nome} paga ${pct(pctP1)}: ${brl(resumo!.paga_pessoa1)}`,
       `${p2.nome} paga ${pct(1 - pctP1)}: ${brl(resumo!.paga_pessoa2)}`,
+      `Gastos pessoais: ${p1.nome} ${brl(r1.gastos_pessoais)} · ${p2.nome} ${brl(r2.gastos_pessoais)}`,
       `Saldo previsto do casal: ${brl(resumo!.sobra_total)}`,
       `Ainda a pagar: ${brl(resumo!.total_pendente)}`
     ].join('\n');
@@ -89,7 +93,7 @@ export function VisaoGeral({ irPara }: Props) {
             <button className="btn sec" type="button" onClick={() => window.open('https://wa.me/?text=' + encodeURIComponent(resumoTexto()))}>
               WhatsApp
             </button>
-            <button className="btn" type="button" onClick={() => setEditando('nova')}><Icon.mais /> Nova conta</button>
+            <button className="btn" type="button" onClick={() => setEditando('nova')}><Icon.mais /> Novo gasto</button>
           </>}
         />
 
@@ -97,7 +101,7 @@ export function VisaoGeral({ irPara }: Props) {
           <div className="card-head">
             <div>
               <h2 className="card-title">Saldo previsto</h2>
-              <p className="card-sub">O que sobra da renda depois de casa, contas pessoais e dia a dia.</p>
+              <p className="card-sub">O que sobra da renda depois das contas da casa e dos gastos de cada um.</p>
             </div>
             <span className={`badge ${pctLivre < 0 ? '' : 'blue'}`}>{pct(pctLivre)} da renda livre</span>
           </div>
@@ -105,15 +109,15 @@ export function VisaoGeral({ irPara }: Props) {
           <div className="label">Valor livre estimado do casal até o fim do mês</div>
           <div className="seg" role="img" aria-label="Distribuição da renda">
             <span style={{ width: w(resumo.total_casa), background: 'var(--accent)' }} />
-            <span style={{ width: w(fixos), background: '#7aa6ff' }} />
-            <span style={{ width: w(diaADia), background: 'var(--pink)' }} />
+            <span style={{ width: w(r1.gastos_pessoais), background: '#7aa6ff' }} />
+            <span style={{ width: w(r2.gastos_pessoais), background: 'var(--pink)' }} />
             <span style={{ width: w(Math.max(0, resumo.sobra_total)), background: '#fbb6c6' }} />
           </div>
           <div className="legend">
             <span>Renda<b>{brl(resumo.renda_total)}</b></span>
             <span><i className="dot" style={{ background: 'var(--accent)' }} />Casa<b>{brl(resumo.total_casa)}</b></span>
-            <span><i className="dot" style={{ background: '#7aa6ff' }} />Contas pessoais<b>{brl(fixos)}</b></span>
-            <span><i className="dot" style={{ background: 'var(--pink)' }} />Dia a dia<b>{brl(diaADia)}</b></span>
+            <span><i className="dot" style={{ background: '#7aa6ff' }} /><button type="button" className="nome-link" onClick={() => verPessoa(r1.id)}>Gastos de {r1.nome}</button><b>{brl(r1.gastos_pessoais)}</b></span>
+            <span><i className="dot" style={{ background: 'var(--pink)' }} /><button type="button" className="nome-link" onClick={() => verPessoa(r2.id)}>Gastos de {r2.nome}</button><b>{brl(r2.gastos_pessoais)}</b></span>
             <span><i className="dot" style={{ background: '#fbb6c6' }} />Sobra<b>{brl(resumo.sobra_total)}</b></span>
           </div>
         </section>
@@ -123,7 +127,7 @@ export function VisaoGeral({ irPara }: Props) {
             <div className="card-head">
               <div>
                 <h2 className="card-title">Divisão da casa</h2>
-                <p className="card-sub">Quanto cada um paga do total mensal da casa.</p>
+                <p className="card-sub">Quanto cada um paga da casa. Clique num nome para ver os gastos pessoais.</p>
               </div>
               <span className="badge blue">{estado.config.modo_divisao === 'igual' ? 'Meio a meio' : 'Pela renda'}</span>
             </div>
@@ -135,7 +139,13 @@ export function VisaoGeral({ irPara }: Props) {
             </div>
             {[r1, r2].map((p, i) => (
               <div className="row" key={p.id}>
-                <span className="row-left"><i className={`dot ${i ? 'p2' : 'p1'}`} />{p.nome} paga {pct(i ? 1 - pctP1 : pctP1)}</span>
+                <span className="row-left">
+                  <i className={`dot ${i ? 'p2' : 'p1'}`} />
+                  <span>
+                    <button type="button" className="nome-link" onClick={() => verPessoa(p.id)} title={`Ver gastos de ${p.nome}`}>{p.nome}</button> paga {pct(i ? 1 - pctP1 : pctP1)}
+                    <span className="label" style={{ display: 'block' }}>+ {brl(p.gastos_pessoais)} em gastos pessoais</span>
+                  </span>
+                </span>
                 <span className="row-val">{brl(p.parte_casa)}</span>
               </div>
             ))}
@@ -145,9 +155,9 @@ export function VisaoGeral({ irPara }: Props) {
             <div className="card-head">
               <div>
                 <h2 className="card-title">Cartões</h2>
-                <p className="card-sub">{cartao ? 'Limite e vencimento do cartão principal.' : 'Nenhum cartão cadastrado.'}</p>
+                <p className="card-sub">{cartao ? `Cartão principal${cartoes.length > 1 ? ` · mais ${cartoes.length - 1} em Cartões` : ''}.` : 'Nenhum cartão cadastrado.'}</p>
               </div>
-              {cartao && <span className={`badge ${cartao.faturas[0]?.paga ? 'ok' : 'blue'}`}>{cartao.faturas[0]?.paga ? 'Paga' : 'Aberta'}</span>}
+              {cartao && <DonoBadge pessoaId={cartao.pessoa_id} rotuloCasa="Da casa" />}
             </div>
             {cartao ? (
               <>
@@ -172,20 +182,20 @@ export function VisaoGeral({ irPara }: Props) {
           <div className="card-head">
             <div>
               <h2 className="card-title">Contas da casa</h2>
-              <p className="card-sub">Clique numa conta para editar. O quadrado marca como paga.</p>
+              <p className="card-sub">Só o que é dividido entre os dois. Clique para editar; o quadrado marca como paga.</p>
             </div>
             <span className="badge blue">{contas.length} {contas.length === 1 ? 'item' : 'itens'}</span>
           </div>
           {contas.length === 0 ? (
             <div className="empty">
-              Nenhuma conta neste mês ainda.
-              <button className="btn" type="button" onClick={() => setEditando('nova')}><Icon.mais /> Adicionar a primeira conta</button>
+              Nenhuma conta da casa neste mês ainda.
+              <button className="btn" type="button" onClick={() => setEditando('nova')}><Icon.mais /> Adicionar conta da casa</button>
             </div>
           ) : (
             <div>
               {contas.map((c) => (
                 <div className={`row${c.pago ? ' pago' : ''}`} key={c.id}>
-                  <button type="button" className="row-left" style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer', textAlign: 'left', flex: 1 }} onClick={() => setEditando(c)}>
+                  <button type="button" className="row-left row-btn" onClick={() => setEditando(c)}>
                     <CatIcon cat={c.categoria} />
                     <div>
                       <div className="row-name">{c.nome}</div>
@@ -210,7 +220,7 @@ export function VisaoGeral({ irPara }: Props) {
             <div className="card-head">
               <div>
                 <h2 className="card-title">Próximas faturas</h2>
-                <p className="card-sub">Soma dos cartões nos próximos meses.</p>
+                <p className="card-sub">Soma de todos os cartões (da casa e de cada um).</p>
               </div>
             </div>
             {cartoes.length === 0 ? <div className="empty">Cadastre um cartão para ver as próximas faturas.</div> : (
@@ -230,7 +240,7 @@ export function VisaoGeral({ irPara }: Props) {
             <div className="card-head">
               <div>
                 <h2 className="card-title">Reserva e obra</h2>
-                <p className="card-sub">O quanto já foi guardado para cada objetivo.</p>
+                <p className="card-sub">O quanto já foi guardado para cada objetivo, do casal e de cada um.</p>
               </div>
             </div>
             {metas.length === 0 ? (
@@ -238,7 +248,7 @@ export function VisaoGeral({ irPara }: Props) {
             ) : metas.slice(0, 3).map((m) => (
               <div key={m.id} style={{ marginBottom: 12 }}>
                 <div className="row" style={{ padding: '4px 8px' }}>
-                  <span className="row-left"><CatIcon cat={m.tipo === 'obra' ? 'obra' : 'reserva'} /><span className="row-name">{m.nome}</span></span>
+                  <span className="row-left"><CatIcon cat={m.tipo === 'obra' ? 'obra' : 'reserva'} /><span className="row-name">{m.nome}</span>{m.pessoa_id != null && <span style={{ marginLeft: 8 }}><DonoBadge pessoaId={m.pessoa_id} /></span>}</span>
                   <span className="row-val">{brl(m.valor_atual)}</span>
                 </div>
                 <div className="progress"><span style={{ width: `${Math.min(100, m.valor_alvo ? (m.valor_atual / m.valor_alvo) * 100 : 0)}%` }} /></div>
@@ -256,7 +266,7 @@ export function VisaoGeral({ irPara }: Props) {
           <div className="card-head">
             <div>
               <h2 className="card-title">Contas a pagar</h2>
-              <p className="card-sub">Escolha o dia para ver o que vence até ele.</p>
+              <p className="card-sub">Contas da casa e os seus gastos. Escolha o dia.</p>
             </div>
           </div>
           {aPagar.length === 0 ? (
@@ -266,18 +276,18 @@ export function VisaoGeral({ irPara }: Props) {
               <div className="pills" role="group" aria-label="Dia de vencimento">
                 {dias.map((d) => (
                   <button key={d} type="button" className={`pill${d === dia ? ' active' : ''}`} aria-pressed={d === dia} onClick={() => setDiaSel(d)}>
-                    {dia2(d)}
+                    {rotuloDia(d)}
                   </button>
                 ))}
               </div>
               <div className="big sm">{brl(ateODia.reduce((a, i) => a + i.valor, 0))}</div>
-              <div className="label">Total a pagar até o dia {dia2(dia ?? 1)}</div>
+              <div className="label">{dia === SEM_DIA ? 'Total a pagar no mês, incluindo gastos sem data' : `Total a pagar até o dia ${dia2(dia ?? 1)}`}</div>
               <div style={{ marginTop: 10 }}>
                 {ateODia.map((i) => (
                   <div className="row" key={i.chave}>
                     <span className="row-left">
                       <CatIcon cat={i.cat} />
-                      <div><div className="row-name">{i.nome}</div><div className="label">Dia {dia2(i.dia)}</div></div>
+                      <div><div className="row-name">{i.nome}</div><div className="label">{i.dia === SEM_DIA ? 'Sem vencimento' : `Dia ${dia2(i.dia)}`}</div></div>
                     </span>
                     <span className="row-val">{brl(i.valor)}</span>
                     <Check on={false} label="Marcar como paga" onToggle={() => acao(i.pagar, `${i.nome} marcada como paga`)} />
@@ -286,6 +296,21 @@ export function VisaoGeral({ irPara }: Props) {
               </div>
             </>
           )}
+        </section>
+
+        <section className="glass card">
+          <div className="card-head">
+            <div>
+              <h2 className="card-title">Seus gastos pessoais</h2>
+              <p className="card-sub">Só de {perfil.nome}, fora da divisão da casa.</p>
+            </div>
+          </div>
+          <div className="big sm">{brl(perfil.ordem === 1 ? r1.gastos_pessoais : r2.gastos_pessoais)}</div>
+          <div className="label">{meus.length} {meus.length === 1 ? 'lançamento' : 'lançamentos'} · falta pagar {brl(perfil.ordem === 1 ? r1.pessoais_pendente : r2.pessoais_pendente)}</div>
+          <div className="actions" style={{ marginTop: 12 }}>
+            <button className="btn sm" type="button" onClick={() => setEditando('meu')}><Icon.mais /> Lançar gasto meu</button>
+            <button className="btn sm sec" type="button" onClick={() => irPara('meus')}>Ver todos</button>
+          </div>
         </section>
 
         <section className="glass card">
@@ -326,7 +351,13 @@ export function VisaoGeral({ irPara }: Props) {
         </section>
       </aside>
 
-      {editando && <ContaModal conta={editando === 'nova' ? null : editando} onClose={() => setEditando(null)} />}
+      {editando && (
+        <ContaModal
+          conta={editando === 'nova' || editando === 'meu' ? null : editando}
+          donoPadrao={editando === 'meu' ? perfil.id : null}
+          onClose={() => setEditando(null)}
+        />
+      )}
     </>
   );
 }

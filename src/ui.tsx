@@ -3,13 +3,16 @@ import {
 } from 'react';
 import { Icon } from './icons';
 import { editBRL, parseBRL } from './format';
-import type { Estado, Mes } from './types';
+import type { Estado, Mes, Pessoa } from './types';
 
 // ---------- contexto global do app ----------
 type EstadoPronto = Extract<Estado, { pronto: true }>;
 
 interface Ctx {
   estado: EstadoPronto;
+  perfil: Pessoa;            // quem está usando o app agora
+  trocarPerfil: () => void;
+  verPessoa: (id: number) => void; // abre os gastos pessoais de alguém
   mes: Mes;
   versao: number;            // muda a cada gravação: as telas recarregam
   recarregar: () => void;

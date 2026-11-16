@@ -110,6 +110,54 @@ const MIGRATIONS = [
   FROM contas ct
   LEFT JOIN partes pt ON pt.conta_id = ct.id
   GROUP BY ct.casal_id, ct.mes_referencia;
+  `,
+
+  // v2 (app 1.1) — conta por pessoa e gastos com dono.
+  // contas.pessoa_id NULL = conta da casa (dividida); preenchido = gasto só daquela pessoa.
+  // Os gastos_pessoais da 1.0 viram contas pessoais e a tabela antiga sai.
+  `
+  ALTER TABLE contas ADD COLUMN pessoa_id INTEGER REFERENCES pessoas(id) ON DELETE CASCADE;
+  CREATE INDEX ix_contas_pessoa ON contas (pessoa_id, mes_referencia);
+  ALTER TABLE pessoas ADD COLUMN pin_hash TEXT;
+
+  INSERT INTO contas (casal_id, mes_referencia, nome, categoria, valor, dia_vencimento, pago, recorrente, pessoa_id)
+  SELECT p.casal_id, g.mes_referencia, g.descricao,
+         CASE g.tipo WHEN 'dia_a_dia' THEN 'mercado' ELSE 'outro' END,
+         g.valor, NULL, 0, CASE g.tipo WHEN 'fixa' THEN 1 ELSE 0 END, g.pessoa_id
+  FROM gastos_pessoais g JOIN pessoas p ON p.id = g.pessoa_id;
+
+  INSERT INTO divisoes (conta_id, pessoa_id, percentual)
+  SELECT id, pessoa_id, 1 FROM contas WHERE pessoa_id IS NOT NULL;
+
+  DROP TABLE gastos_pessoais;
+
+  -- A view passa a considerar só as contas da casa.
+  DROP VIEW resumo_mensal;
+  CREATE VIEW resumo_mensal AS
+  WITH partes AS (
+    SELECT d.conta_id,
+           SUM(CASE WHEN p.ordem = 1 THEN d.percentual ELSE 0 END) AS pct1,
+           SUM(CASE WHEN p.ordem = 2 THEN d.percentual ELSE 0 END) AS pct2
+    FROM divisoes d
+    JOIN pessoas p ON p.id = d.pessoa_id
+    GROUP BY d.conta_id
+  )
+  SELECT ct.casal_id,
+         ct.mes_referencia,
+         SUM(ct.valor)                              AS total_casa,
+         SUM(ct.valor * COALESCE(pt.pct1, 0))       AS paga_pessoa1,
+         SUM(ct.valor * COALESCE(pt.pct2, 0))       AS paga_pessoa2,
+         SUM(CASE WHEN ct.pago = 1 THEN ct.valor ELSE 0 END) AS total_pago
+  FROM contas ct
+  LEFT JOIN partes pt ON pt.conta_id = ct.id
+  WHERE ct.pessoa_id IS NULL
+  GROUP BY ct.casal_id, ct.mes_referencia;
+  `,
+
+  // v3 (app 1.2) — cartões e metas também podem ser de uma pessoa (NULL = da casa/casal).
+  `
+  ALTER TABLE cartoes ADD COLUMN pessoa_id INTEGER REFERENCES pessoas(id) ON DELETE CASCADE;
+  ALTER TABLE metas   ADD COLUMN pessoa_id INTEGER REFERENCES pessoas(id) ON DELETE CASCADE;
   `
 ];
 

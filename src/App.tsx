@@ -7,21 +7,25 @@ import { Cartoes } from './pages/Cartoes';
 import { Contas } from './pages/Contas';
 import { Historico } from './pages/Historico';
 import { Metas } from './pages/Metas';
+import { MeusGastos } from './pages/MeusGastos';
+import { Perfil } from './pages/Perfil';
+import { PessoaModal } from './components/GastosPessoa';
 import { Onboarding } from './pages/Onboarding';
 import { Renda } from './pages/Renda';
 import { VisaoGeral } from './pages/VisaoGeral';
-import type { Estado, Mes } from './types';
+import type { Estado, Mes, Pessoa } from './types';
 import { AppCtx, Toaster, type ToastItem } from './ui';
 
 const NAV = [
   { id: 'geral', nome: 'Visão geral', icon: Icon.grid },
-  { id: 'contas', nome: 'Contas da casa', icon: Icon.lista },
+  { id: 'meus', nome: 'Meus gastos', icon: Icon.renda },
+  { id: 'contas', nome: 'Lançamentos', icon: Icon.lista },
   { id: 'cartoes', nome: 'Cartões', icon: Icon.cartao },
   { id: 'metas', nome: 'Reserva e obra', icon: Icon.obra },
   { id: 'historico', nome: 'Histórico', icon: Icon.grafico }
 ];
 const NAV_AJUSTES = [
-  { id: 'renda', nome: 'Nossa renda', icon: Icon.renda },
+  { id: 'renda', nome: 'Nossa renda', icon: Icon.reserva },
   { id: 'ajustes', nome: 'Configurações', icon: Icon.engrenagem }
 ];
 
@@ -36,6 +40,8 @@ export function App() {
   const [pagina, setPagina] = useState('geral');
   const [tema, setTema] = useState(lerTema);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [perfilId, setPerfilId] = useState<number | null>(null);
+  const [vendoPessoa, setVendoPessoa] = useState<number | null>(null);
   const seq = useRef(0);
 
   useEffect(() => {
@@ -61,13 +67,19 @@ export function App() {
     } catch (e) { toast((e as Error).message, 'erro'); }
   }, [recarregar, toast]);
 
-  const ctx = useMemo(() => (estado && estado.pronto ? {
-    estado, mes: estado.config.mes_referencia, versao, recarregar, trocarMes, toast
-  } : null), [estado, versao, recarregar, trocarMes, toast]);
+  const trocarPerfil = useCallback(() => { setPerfilId(null); setPagina('geral'); setVendoPessoa(null); }, []);
+  // o perfil vem sempre do estado atual (nome/PIN podem mudar)
+  const perfil: Pessoa | undefined = estado && estado.pronto ? estado.pessoas.find((p) => p.id === perfilId) : undefined;
+
+  const ctx = useMemo(() => (estado && estado.pronto && perfil ? {
+    estado, perfil, trocarPerfil, verPessoa: setVendoPessoa,
+    mes: estado.config.mes_referencia, versao, recarregar, trocarMes, toast
+  } : null), [estado, perfil, trocarPerfil, versao, recarregar, trocarMes, toast]);
 
   if (erro) return <div className="onb"><div className="glass"><h1 className="page-title">Não foi possível abrir os dados</h1><p className="erro">{erro}</p></div></div>;
   if (!estado) return null;
-  if (!estado.pronto || !ctx) return <><Onboarding pronto={recarregar} /><Toaster itens={toasts} /></>;
+  if (!estado.pronto) return <><Onboarding pronto={recarregar} /><Toaster itens={toasts} /></>;
+  if (!ctx) return <Perfil pessoas={estado.pessoas} nomeCasa={estado.casal.nome} onEntrar={(p) => setPerfilId(p.id)} />;
 
   const [p1, p2] = estado.pessoas;
   const Item = ({ n }: { n: typeof NAV[number] }) => (
@@ -99,13 +111,19 @@ export function App() {
                 onClick={() => setTema(tema === 'dark' ? 'light' : 'dark')} />
             </div>
             <div className="duo">
-              <div className="duo-row"><span className="avatar p1">{iniciais(p1.nome)}</span>{p1.nome}</div>
-              <div className="duo-row"><span className="avatar p2">{iniciais(p2.nome)}</span>{p2.nome}</div>
+              {[p1, p2].map((p) => (
+                <button key={p.id} type="button" className="duo-row btn-row" onClick={() => setVendoPessoa(p.id)} title={`Ver gastos de ${p.nome}`}>
+                  <span className={`avatar ${p.ordem === 1 ? 'p1' : 'p2'}`}>{iniciais(p.nome)}</span>{p.nome}
+                  {p.id === ctx.perfil.id && <span className="voce">você</span>}
+                </button>
+              ))}
+              <button type="button" className="btn sm ghost" onClick={trocarPerfil}>Trocar perfil</button>
             </div>
           </div>
         </aside>
 
         {pagina === 'geral' && <VisaoGeral irPara={setPagina} />}
+        {pagina === 'meus' && <MeusGastos />}
         {pagina === 'contas' && <Contas />}
         {pagina === 'cartoes' && <Cartoes />}
         {pagina === 'metas' && <Metas />}
@@ -113,6 +131,7 @@ export function App() {
         {pagina === 'renda' && <Renda />}
         {pagina === 'ajustes' && <Ajustes />}
       </div>
+      {vendoPessoa != null && <PessoaModal pessoaId={vendoPessoa} onClose={() => setVendoPessoa(null)} />}
       <Toaster itens={toasts} />
     </AppCtx.Provider>
   );

@@ -3,9 +3,9 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 const METODOS = [
-  'estado', 'configurarCasal', 'atualizarPessoa', 'atualizarConfig', 'percentuaisPadrao', 'definirMes',
-  'listarContas', 'salvarConta', 'removerConta', 'marcarPago', 'redividirMes',
-  'listarGastos', 'salvarGasto', 'removerGasto',
+  'estado', 'configurarCasal', 'atualizarPessoa', 'entrar', 'definirPin', 'atualizarConfig',
+  'percentuaisPadrao', 'definirMes',
+  'listarContas', 'salvarConta', 'definirDono', 'removerConta', 'marcarPago', 'redividirMes',
   'listarCartoes', 'salvarCartao', 'removerCartao', 'salvarFatura',
   'listarMetas', 'salvarMeta', 'removerMeta',
   'resumo', 'historico'
